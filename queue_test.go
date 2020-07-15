@@ -2,6 +2,7 @@ package dfq
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"io/ioutil"
 	"os"
@@ -74,7 +75,7 @@ func TestOpen(t *testing.T) {
 	}
 
 	_, err = q.Peek()
-	if !os.IsNotExist(err) {
+	if !errors.Is(err, ErrEmptyQueue) {
 		t.Error("has to be no file")
 	}
 }

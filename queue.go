@@ -82,7 +82,14 @@ func (q *queue) Stream(handler func(out io.Writer) error) error {
 func (q *queue) Peek() (io.ReadCloser, error) {
 	q.reader.lock.Lock()
 	defer q.reader.lock.Unlock()
-	return os.Open(filepath.Join(q.directory, fmt.Sprint(q.reader.currentId, dataSuffix)))
+	f, err := os.Open(filepath.Join(q.directory, fmt.Sprint(q.reader.currentId, dataSuffix)))
+	if err == nil {
+		return f, nil
+	}
+	if os.IsNotExist(err) {
+		return nil, ErrEmptyQueue
+	}
+	return nil, err
 }
 
 // Commit current file: remove it from FS and move reader sequence forward
