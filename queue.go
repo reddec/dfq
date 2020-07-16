@@ -121,6 +121,11 @@ func (q *queue) Wait(ctx context.Context) (io.ReadCloser, error) {
 	}
 }
 
+// Remove everything in a queue directory (and directory itself)
+func (q *queue) Destroy() error {
+	return os.RemoveAll(q.directory)
+}
+
 func (q *queue) attachToQueue(oldName string) error {
 	q.writer.lock.Lock()
 	defer q.writer.lock.Unlock()

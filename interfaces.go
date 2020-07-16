@@ -18,6 +18,8 @@ type Queue interface {
 	Commit() error
 	// Peek oldest record or wait for new one
 	Wait(ctx context.Context) (io.ReadCloser, error)
+	// Remove allocated resources
+	Destroy() error
 }
 
 type emptyQueue int

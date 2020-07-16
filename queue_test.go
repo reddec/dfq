@@ -78,6 +78,11 @@ func TestOpen(t *testing.T) {
 	if !errors.Is(err, ErrEmptyQueue) {
 		t.Error("has to be no file")
 	}
+
+	err = q.Destroy()
+	if err != nil {
+		t.Error(err)
+	}
 }
 
 func BenchmarkQueue_Put(b *testing.B) {
