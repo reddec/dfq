@@ -2,17 +2,23 @@ package dfq
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"io/ioutil"
 	"os"
 	"testing"
+	"time"
 )
 
 func TestOpen(t *testing.T) {
 	q, err := Open("./test/queue")
 	if err != nil {
 		t.Error(err)
+		return
+	}
+	if q.Len() != 0 {
+		t.Error("non-empty queue")
 		return
 	}
 	err = q.Put(bytes.NewBufferString("var1"))
@@ -25,10 +31,17 @@ func TestOpen(t *testing.T) {
 		t.Error(err)
 		return
 	}
-
+	if q.Len() != 2 {
+		t.Error("queue size should 2")
+		return
+	}
 	f, err := q.Peek()
 	if err != nil {
 		t.Error(err)
+		return
+	}
+	if q.Len() != 2 {
+		t.Error("queue size should 2")
 		return
 	}
 	data, err := ioutil.ReadAll(f)
@@ -59,6 +72,10 @@ func TestOpen(t *testing.T) {
 		t.Error(err)
 		return
 	}
+	if q.Len() != 1 {
+		t.Error("queue size should 1")
+		return
+	}
 
 	if s, err := GetString(q); err != nil {
 		t.Error(err)
@@ -78,6 +95,50 @@ func TestOpen(t *testing.T) {
 	if !errors.Is(err, ErrEmptyQueue) {
 		t.Error("has to be no file")
 	}
+
+	go func() {
+		<-time.After(1 * time.Second)
+		if err := q.Put(bytes.NewBufferString("hello world")); err != nil {
+			t.Error(err)
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1100*time.Millisecond)
+	v, err := q.Wait(ctx)
+	cancel()
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	data, err = ioutil.ReadAll(v)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	if string(data) != "hello world" {
+		t.Error("corrupted data")
+		return
+	}
+
+	// re-open
+
+	q2, err := Open("./test/queue")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	if q.Len() != 1 {
+		t.Error("queue size should 1")
+		return
+	}
+	v, err = q2.Peek()
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	_ = v.Close()
 
 	err = q.Destroy()
 	if err != nil {

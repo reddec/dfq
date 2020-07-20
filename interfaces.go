@@ -20,6 +20,8 @@ type Queue interface {
 	Wait(ctx context.Context) (io.ReadCloser, error)
 	// Remove allocated resources
 	Destroy() error
+	// Number of elements in queue
+	Len() int64
 }
 
 type emptyQueue int

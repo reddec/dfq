@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 const (
@@ -44,6 +45,7 @@ type queue struct {
 		lock    sync.Mutex
 		counter int64
 	}
+	length int64
 }
 
 // Put data from stream to file. Could be run concurrently
@@ -73,6 +75,7 @@ func (q *queue) Stream(handler func(out io.Writer) error) error {
 	if err != nil {
 		return fmt.Errorf("dfq: attach to queue: %w", err)
 	}
+	atomic.AddInt64(&q.length, 1)
 	q.notifyUpdate()
 	return nil
 }
@@ -98,6 +101,7 @@ func (q *queue) Commit() error {
 	path := filepath.Join(q.directory, fmt.Sprint(q.reader.currentId, dataSuffix))
 	q.reader.currentId++
 	q.reader.lock.Unlock()
+	atomic.AddInt64(&q.length, -1)
 	q.notifyUpdate()
 	err := os.Remove(path)
 	return err
@@ -110,7 +114,7 @@ func (q *queue) Wait(ctx context.Context) (io.ReadCloser, error) {
 		if err == nil {
 			return f, nil
 		}
-		if !os.IsNotExist(err) {
+		if err != ErrEmptyQueue {
 			return nil, err
 		}
 		select {
@@ -121,6 +125,10 @@ func (q *queue) Wait(ctx context.Context) (io.ReadCloser, error) {
 	}
 }
 
+func (q *queue) Len() int64 {
+	return q.length
+}
+
 // Remove everything in a queue directory (and directory itself)
 func (q *queue) Destroy() error {
 	return os.RemoveAll(q.directory)
@@ -129,12 +137,12 @@ func (q *queue) Destroy() error {
 func (q *queue) attachToQueue(oldName string) error {
 	q.writer.lock.Lock()
 	defer q.writer.lock.Unlock()
-	id := q.writer.counter + 1
+	id := q.writer.counter
 	err := os.Rename(oldName, filepath.Join(q.directory, fmt.Sprint(id, dataSuffix)))
 	if err != nil {
 		return fmt.Errorf("rename temp file to queue element: %w", err)
 	}
-	q.writer.counter = id
+	q.writer.counter = id + 1
 	return nil
 }
 
@@ -151,16 +159,18 @@ func (q *queue) synchronizeState() error {
 	if err != nil {
 		return err
 	}
-	var min int64 = 1
+	var min int64
 	var max int64
-	for _, file := range list {
+	for i, file := range list {
 		name := file.Name()
 		if strings.HasSuffix(name, dataSuffix) {
 			id, err := strconv.ParseInt(name[:len(name)-len(dataSuffix)], 10, 64)
 			if err != nil {
 				return err
 			}
-			if id > max {
+			if i == 0 {
+				min, max = id, id
+			} else if id > max {
 				max = id
 			} else if id < min {
 				min = id
@@ -174,6 +184,7 @@ func (q *queue) synchronizeState() error {
 	}
 	q.reader.currentId = min
 	q.writer.counter = max
+	q.length = max - min
 	return nil
 }
 
