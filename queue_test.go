@@ -146,6 +146,46 @@ func TestOpen(t *testing.T) {
 	}
 }
 
+func TestQueue_Steal(t *testing.T) {
+	q, err := Open("./test/queue1")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	defer q.Destroy()
+
+	q2, err := Open("./test/queue2")
+	defer q2.Destroy()
+
+	err = q.Put(bytes.NewBufferString("hello"))
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	err = q2.Steal(q)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	if q.Len() != 0 {
+		t.Errorf("original queue should be empty")
+	}
+	if q2.Len() != 1 {
+		t.Errorf("target queue should be filled")
+	}
+
+	v, err := GetString(q2)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	if v != "hello" {
+		t.Errorf("unknown message")
+	}
+}
+
 func BenchmarkQueue_Put(b *testing.B) {
 	q, err := Open("test/queue")
 	if err != nil {

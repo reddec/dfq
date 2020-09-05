@@ -9,6 +9,9 @@ import (
 type Queue interface {
 	// Put data from stream to queue. Could be run concurrently
 	Put(reader io.Reader) error
+	// Steal item from queue by copying item to the back of self queue and committing in original one.
+	// Has internal optimization for file-based queues if they are on the same devices/partitions.
+	Steal(from Queue) error
 	// Stream data to new queue entity. Entity will be automatically added to queue after finish without error.
 	Stream(handler func(out io.Writer) error) error
 	// Peek oldest item or return an error (ErrEmptyQueue). Can be called concurrently,

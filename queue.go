@@ -71,13 +71,35 @@ func (q *queue) Stream(handler func(out io.Writer) error) error {
 		_ = os.Remove(tmp.Name())
 		return err
 	}
-	err = q.attachToQueue(tmp.Name())
+	err = q.Attach(tmp.Name())
 	if err != nil {
-		return fmt.Errorf("dfq: attach to queue: %w", err)
+		_ = os.Remove(tmp.Name())
 	}
-	atomic.AddInt64(&q.length, 1)
-	q.notifyUpdate()
-	return nil
+	return err
+}
+
+func (q *queue) Steal(from Queue) error {
+	fq, ok := from.(interface {
+		File() string
+	})
+	if ok {
+		err := q.Attach(fq.File())
+		if err == nil {
+			return from.Commit()
+		}
+	}
+	// fallback to full copy
+	return q.Stream(func(out io.Writer) error {
+		in, err := from.Peek()
+		if err != nil {
+			return err
+		}
+		_, err = io.Copy(out, in)
+		if err != nil {
+			return err
+		}
+		return from.Commit()
+	})
 }
 
 // Peek oldest file or return ErrNotExist. Can be called concurrently,
@@ -95,7 +117,7 @@ func (q *queue) Peek() (io.ReadCloser, error) {
 	return nil, err
 }
 
-// Commit current file: remove it from FS and move reader sequence forward
+// Commit current file: remove it from FS and move reader sequence forward. It tolerates already removed item.
 func (q *queue) Commit() error {
 	q.reader.lock.Lock()
 	path := filepath.Join(q.directory, fmt.Sprint(q.reader.currentId, dataSuffix))
@@ -104,6 +126,9 @@ func (q *queue) Commit() error {
 	atomic.AddInt64(&q.length, -1)
 	q.notifyUpdate()
 	err := os.Remove(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
 	return err
 }
 
@@ -132,6 +157,22 @@ func (q *queue) Len() int64 {
 // Remove everything in a queue directory (and directory itself)
 func (q *queue) Destroy() error {
 	return os.RemoveAll(q.directory)
+}
+
+// Attach external file to the queue (and removing/moving original).
+func (q *queue) Attach(file string) error {
+	err := q.attachToQueue(file)
+	if err != nil {
+		return fmt.Errorf("dfq: attach to queue: %w", err)
+	}
+	atomic.AddInt64(&q.length, 1)
+	q.notifyUpdate()
+	return nil
+}
+
+// Current peek file path. File may not exists if queue is altered or empty.
+func (q *queue) File() string {
+	return filepath.Join(q.directory, fmt.Sprint(q.reader.currentId, dataSuffix))
 }
 
 func (q *queue) attachToQueue(oldName string) error {
